@@ -18,7 +18,7 @@ Parameters:
     Default: trevy-prod-logs
   KmsKeyId:
     Type: String
-    Description: KMS Key ID used to encrypt secrets (format: key GUID)
+    Description: "KMS Key ID used to encrypt secrets (format: key GUID)"
   LogGroupPrefix:
     Type: String
     Default: /ecs/trevy-
