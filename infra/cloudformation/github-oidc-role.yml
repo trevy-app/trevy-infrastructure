@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: GitHub Actions OIDC provider and shared deploy role for Trevy repos
+
+Parameters:
+  RoleName:
+    Type: String
+    Default: GitHubActionsTrevyDeploy
+  GitHubOrg:
+    Type: String
+    Default: trevy-app
+  RepoInfrastructure:
+    Type: String
+    Default: trevy-infrastructure
+  RepoBackend:
+    Type: String
+    Default: trevy-backend
+  RepoAiService:
+    Type: String
+    Default: trevy-ai-service
+  RepoFrontend:
+    Type: String
+    Default: trevy-frontend
+  Thumbprint:
+    Type: String
+    Default: 6938fd4d98bab03faadb97b34396831e3780aea1
+    Description: Thumbprint for token.actions.githubusercontent.com
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - !Ref Thumbprint
+
+  GitHubActionsTrevyDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub 'repo:${GitHubOrg}/${RepoInfrastructure}:*'
+                  - !Sub 'repo:${GitHubOrg}/${RepoBackend}:*'
+                  - !Sub 'repo:${GitHubOrg}/${RepoAiService}:*'
+                  - !Sub 'repo:${GitHubOrg}/${RepoFrontend}:*'
+      Policies:
+        - PolicyName: TrevyDeployPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudFormation
+                Effect: Allow
+                Action: [ 'cloudformation:*' ]
+                Resource: 'arn:aws:cloudformation:*:*:stack/trevy-*'
+              - Sid: ECR
+                Effect: Allow
+                Action: [ 'ecr:*' ]
+                Resource: '*'
+              - Sid: ECS
+                Effect: Allow
+                Action: [ 'ecs:*' ]
+                Resource: '*'
+              - Sid: IAMLimited
+                Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                Resource: 'arn:aws:iam::*:role/trevy-*'
+              - Sid: RDS
+                Effect: Allow
+                Action: [ 'rds:*' ]
+                Resource: '*'
+              - Sid: ElastiCache
+                Effect: Allow
+                Action: [ 'elasticache:*' ]
+                Resource: '*'
+              - Sid: VPC
+                Effect: Allow
+                Action: [ 'ec2:*' ]
+                Resource: '*'
+              - Sid: S3
+                Effect: Allow
+                Action: [ 's3:*' ]
+                Resource:
+                  - 'arn:aws:s3:::trevy-*'
+                  - 'arn:aws:s3:::trevy-*/*'
+              - Sid: CloudFront
+                Effect: Allow
+                Action: [ 'cloudfront:*' ]
+                Resource: '*'
+              - Sid: Route53
+                Effect: Allow
+                Action: [ 'route53:*' ]
+                Resource: '*'
+              - Sid: ACM
+                Effect: Allow
+                Action: [ 'acm:*' ]
+                Resource: '*'
+              - Sid: SSM
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource: 'arn:aws:ssm:*:*:parameter/trevy/*'
+              - Sid: SecretsManager
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:UpdateSecret
+                Resource: 'arn:aws:secretsmanager:*:*:secret:trevy/*'
+              - Sid: Logs
+                Effect: Allow
+                Action: [ 'logs:*' ]
+                Resource: '*'
+              - Sid: ALB
+                Effect: Allow
+                Action: [ 'elasticloadbalancing:*' ]
+                Resource: '*'
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt GitHubActionsTrevyDeployRole.Arn
+  OidcProviderArn:
+    Value: !Ref GitHubOidcProvider
+

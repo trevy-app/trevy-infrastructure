@@ -1,0 +1,186 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/cloudformation/**'
+      - '.github/workflows/deploy-infra.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (dev|staging|prod)'
+        required: true
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy-infrastructure:
+    name: Deploy infrastructure stacks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "ENV=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy ECS Cluster
+        run: |
+          aws cloudformation deploy \
+            --stack-name "trevy-${ENV}-ecs-cluster" \
+            --template-file infra/cloudformation/ecs-cluster.yml \
+            --parameter-overrides \
+              Environment=${ENV} \
+              VpcId=${{ secrets.VPC_ID }} \
+              PrivateSubnetIds=${{ secrets.PRIVATE_SUBNET_IDS }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Save ECS Cluster outputs to SSM
+        run: |
+          CLUSTER_JSON=$(aws cloudformation describe-stacks \
+            --stack-name "trevy-${ENV}-ecs-cluster" \
+            --query 'Stacks[0].Outputs' \
+            --output json)
+          
+          CLUSTER_NAME=$(echo "$CLUSTER_JSON" | jq -r '.[] | select(.OutputKey=="ClusterName") | .OutputValue')
+          
+          aws ssm put-parameter \
+            --name "/trevy/${ENV}/ecs/ClusterName" \
+            --value "$CLUSTER_NAME" \
+            --type String \
+            --overwrite
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Deploy IAM Roles
+        run: |
+          aws cloudformation deploy \
+            --stack-name "trevy-${ENV}-iam-roles" \
+            --template-file infra/cloudformation/iam-roles.yml \
+            --parameter-overrides Environment=${ENV} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Save IAM Role outputs to SSM
+        run: |
+          IAM_JSON=$(aws cloudformation describe-stacks \
+            --stack-name "trevy-${ENV}-iam-roles" \
+            --query 'Stacks[0].Outputs' \
+            --output json)
+          
+          EXEC_ROLE=$(echo "$IAM_JSON" | jq -r '.[] | select(.OutputKey=="TaskExecutionRoleArn") | .OutputValue')
+          APP_ROLE=$(echo "$IAM_JSON" | jq -r '.[] | select(.OutputKey=="AppTaskRoleArn") | .OutputValue')
+          
+          aws ssm put-parameter --name "/trevy/${ENV}/iam/TaskExecutionRoleArn" --value "$EXEC_ROLE" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/iam/AppTaskRoleArn" --value "$APP_ROLE" --type String --overwrite
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Deploy Data Layer
+        run: |
+          aws cloudformation deploy \
+            --stack-name "trevy-${ENV}-data-layer" \
+            --template-file infra/cloudformation/data-layer.yml \
+            --parameter-overrides \
+              Environment=${ENV} \
+              VpcId=${{ secrets.VPC_ID }} \
+              PrivateSubnetIds=${{ secrets.PRIVATE_SUBNET_IDS }} \
+            --no-fail-on-empty-changeset
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Save Data Layer outputs to SSM
+        run: |
+          DATA_JSON=$(aws cloudformation describe-stacks \
+            --stack-name "trevy-${ENV}-data-layer" \
+            --query 'Stacks[0].Outputs' \
+            --output json)
+          
+          DB_SG=$(echo "$DATA_JSON" | jq -r '.[] | select(.OutputKey=="DbSecurityGroupId") | .OutputValue')
+          DB_SECRET=$(echo "$DATA_JSON" | jq -r '.[] | select(.OutputKey=="DbSecretArn") | .OutputValue')
+          REDIS_SG=$(echo "$DATA_JSON" | jq -r '.[] | select(.OutputKey=="RedisSecurityGroupId") | .OutputValue')
+          REDIS_SECRET=$(echo "$DATA_JSON" | jq -r '.[] | select(.OutputKey=="RedisSecretArn") | .OutputValue')
+          
+          aws ssm put-parameter --name "/trevy/${ENV}/data/DbSecurityGroupId" --value "$DB_SG" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/data/DbSecretArn" --value "$DB_SECRET" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/data/RedisSecurityGroupId" --value "$REDIS_SG" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/data/RedisSecretArn" --value "$REDIS_SECRET" --type String --overwrite
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Deploy Frontend Stack (S3 + CloudFront)
+        run: |
+          aws cloudformation deploy \
+            --stack-name "trevy-${ENV}-frontend" \
+            --template-file infra/cloudformation/frontend.yml \
+            --parameter-overrides \
+              BucketName=trevy-${ENV}-frontend \
+              DomainName=app.${{ secrets.DOMAIN_NAME }} \
+              HostedZoneId=${{ secrets.ROUTE53_HOSTED_ZONE_ID }} \
+              AcmCertificateArn=${{ secrets.ACM_CERTIFICATE_ARN_US_EAST_1 }} \
+            --region us-east-1 \
+            --no-fail-on-empty-changeset
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Save Frontend Stack Outputs to SSM
+        run: |
+          FRONTEND_JSON=$(aws cloudformation describe-stacks \
+            --stack-name "trevy-${ENV}-frontend" \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs' \
+            --output json)
+          
+          BUCKET=$(echo "$FRONTEND_JSON" | jq -r '.[] | select(.OutputKey=="BucketOut") | .OutputValue')
+          DIST_ID=$(echo "$FRONTEND_JSON" | jq -r '.[] | select(.OutputKey=="DistributionId") | .OutputValue')
+          DIST_DOMAIN=$(echo "$FRONTEND_JSON" | jq -r '.[] | select(.OutputKey=="DistributionDomainName") | .OutputValue')
+          
+          if [ -z "$BUCKET" ] || [ -z "$DIST_ID" ]; then
+            echo "ERROR: Missing frontend outputs"
+            exit 1
+          fi
+          
+          aws ssm put-parameter --name "/trevy/${ENV}/frontend/BucketName" --value "$BUCKET" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/frontend/DistributionId" --value "$DIST_ID" --type String --overwrite
+          aws ssm put-parameter --name "/trevy/${ENV}/frontend/DistributionDomainName" --value "$DIST_DOMAIN" --type String --overwrite
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}
+
+      - name: Summary
+        run: |
+          echo "✅ Infrastructure deployed successfully"
+          echo ""
+          echo "Environment: ${ENV}"
+          echo ""
+          echo "SSM Parameters written:"
+          echo "  - /trevy/${ENV}/ecs/*"
+          echo "  - /trevy/${ENV}/iam/*"
+          echo "  - /trevy/${ENV}/data/*"
+          echo "  - /trevy/${ENV}/frontend/*"
+        env:
+          ENV: ${{ steps.env.outputs.ENV }}

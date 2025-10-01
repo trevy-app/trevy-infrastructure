@@ -1,0 +1,339 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Trevy Web Service (ALB + ECS Fargate) with HTTPS, autoscaling, and secrets injection
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  ClusterName:
+    Type: String
+    Default: trevy-cluster
+  AppImage:
+    Type: String
+    Description: ECR image URI for trevy-platform web service
+  DesiredCount:
+    Type: Number
+    Default: 2
+  MinCapacity:
+    Type: Number
+    Default: 2
+  MaxCapacity:
+    Type: Number
+    Default: 10
+  Cpu:
+    Type: Number
+    Default: 512
+  Memory:
+    Type: Number
+    Default: 1024
+  TaskExecutionRoleArn:
+    Type: String
+  AppTaskRoleArn:
+    Type: String
+  AppLogGroupName:
+    Type: String
+    Default: /ecs/trevy-platform
+  AcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN for the HTTPS listener (api domain)
+  AppUrl:
+    Type: String
+    Description: Public API base URL (e.g., https://api.example.com)
+  FrontendUrl:
+    Type: String
+    Description: Frontend origin URL for CORS (e.g., https://app.example.com)
+  FubBaseUrl:
+    Type: String
+    Default: https://api.followupboss.com/v1
+  MailgunEndpoint:
+    Type: String
+    Default: api.mailgun.net
+  StripeAccountId:
+    Type: String
+    Default: ''
+  AiServiceBaseUrl:
+    Type: String
+    Default: ''
+  ScraperServiceBaseUrl:
+    Type: String
+    Default: ''
+  AiServiceTimeout:
+    Type: Number
+    Default: 300
+  RdsSecurityGroupId:
+    Type: String
+    Description: Security group ID of the RDS Postgres instance
+  RedisSecurityGroupId:
+    Type: String
+    Description: Security group ID of the ElastiCache Redis cluster
+  DBSecretArn:
+    Type: String
+    Description: Secrets Manager ARN for DB JSON secret (keys: host, port, username, password, database)
+  RedisSecretArn:
+    Type: String
+    Description: Secrets Manager ARN for Redis JSON secret (keys: host, port, password)
+  AppSecretsArn:
+    Type: String
+    Description: Secrets Manager ARN for application JSON secret (keys: APP_KEY, STRIPE_SECRET, STRIPE_WEBHOOK_SECRET, MAILGUN_API_KEY, MAILGUN_SIGNING_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FUB_X_SYSTEM, FUB_X_SYSTEM_KEY, SERVICE_KEY_ID, SERVICE_SECRET)
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS web service tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref RdsSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          DestinationSecurityGroupId: !Ref RedisSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: trevy-web-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref PublicSubnets
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: trevy-web-tg
+      TargetType: ip
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/v1/health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+        - Key: stickiness.enabled
+          Value: 'false'
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref AcmCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: trevy-web
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref AppTaskRoleArn
+      ContainerDefinitions:
+        - Name: web
+          Image: !Ref AppImage
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Essential: true
+          LinuxParameters:
+            InitProcessEnabled: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: web
+          Environment:
+            - Name: APP_ENV
+              Value: production
+            - Name: APP_DEBUG
+              Value: 'false'
+            - Name: APP_URL
+              Value: !Ref AppUrl
+            - Name: DB_CONNECTION
+              Value: pgsql
+            - Name: CACHE_DRIVER
+              Value: redis
+            - Name: SESSION_DRIVER
+              Value: redis
+            - Name: QUEUE_CONNECTION
+              Value: redis
+            - Name: LOG_CHANNEL
+              Value: stderr
+            - Name: FRONTEND_URL
+              Value: !Ref FrontendUrl
+            - Name: MAILGUN_BASE_URL
+              Value: !Ref MailgunEndpoint
+            - Name: FUB_BASE_URL
+              Value: !Ref FubBaseUrl
+            - Name: STRIPE_ACCOUNT_ID
+              Value: !Ref StripeAccountId
+            - Name: AI_SERVICE_BASE_URL
+              Value: !Ref AiServiceBaseUrl
+            - Name: SCRAPER_SERVICE_BASE_URL
+              Value: !Ref ScraperServiceBaseUrl
+            - Name: AI_SERVICE_TIMEOUT
+              Value: !Ref AiServiceTimeout
+          Secrets:
+            # App secrets JSON
+            - Name: APP_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:APP_KEY::"
+            - Name: STRIPE_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_SECRET::"
+            - Name: STRIPE_WEBHOOK_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_WEBHOOK_SECRET::"
+            - Name: MAILGUN_API_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_API_KEY::"
+            - Name: MAILGUN_SIGNING_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_SIGNING_KEY::"
+            - Name: GOOGLE_CLIENT_ID
+              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_ID::"
+            - Name: GOOGLE_CLIENT_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_SECRET::"
+            - Name: FUB_X_SYSTEM
+              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM::"
+            - Name: FUB_X_SYSTEM_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM_KEY::"
+            - Name: SERVICE_KEY_ID
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_KEY_ID::"
+            - Name: SERVICE_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
+            # DB JSON
+            - Name: DB_HOST
+              ValueFrom: !Sub "${DBSecretArn}:host::"
+            - Name: DB_PORT
+              ValueFrom: !Sub "${DBSecretArn}:port::"
+            - Name: DB_DATABASE
+              ValueFrom: !Sub "${DBSecretArn}:dbname::"
+            - Name: DB_USERNAME
+              ValueFrom: !Sub "${DBSecretArn}:username::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DBSecretArn}:password::"
+            # Redis JSON
+            - Name: REDIS_HOST
+              ValueFrom: !Sub "${RedisSecretArn}:host::"
+            - Name: REDIS_PORT
+              ValueFrom: !Sub "${RedisSecretArn}:port::"
+            - Name: REDIS_PASSWORD
+              ValueFrom: !Sub "${RedisSecretArn}:password::"
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - HttpsListener
+    Properties:
+      Cluster: !Ref ClusterName
+      ServiceName: trevy-web
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnets
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: web
+          ContainerPort: 8080
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      HealthCheckGracePeriodSeconds: 60
+
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref MaxCapacity
+      MinCapacity: !Ref MinCapacity
+      ResourceId: !Sub service/${ClusterName}/${Service.Name}
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  CpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: trevy-web-cpu-scaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt LoadBalancer.DNSName
+  ServiceName:
+    Value: !GetAtt Service.Name
+  TargetGroupArn:
+    Value: !Ref TargetGroup

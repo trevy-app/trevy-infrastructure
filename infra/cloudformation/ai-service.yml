@@ -1,0 +1,231 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Trevy AI Service - Internal ALB + ECS Fargate (Python AI), autoscaling, secrets injection
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  ClusterName:
+    Type: String
+    Default: trevy-cluster
+  AiImage:
+    Type: String
+    Description: ECR image URI for trevy-ai-service
+  DesiredCount:
+    Type: Number
+    Default: 2
+  MinCapacity:
+    Type: Number
+    Default: 2
+  MaxCapacity:
+    Type: Number
+    Default: 10
+  Cpu:
+    Type: Number
+    Default: 512
+  Memory:
+    Type: Number
+    Default: 1024
+  TaskExecutionRoleArn:
+    Type: String
+  AiTaskRoleArn:
+    Type: String
+    Description: Reuse AppTaskRoleArn from iam-roles.yml
+  LogGroupName:
+    Type: String
+    Default: /ecs/trevy-ai
+  ContainerPort:
+    Type: Number
+    Default: 8000
+  HealthCheckPath:
+    Type: String
+    Default: /health
+  AiSecretsArn:
+    Type: String
+    Description: Secrets Manager ARN for AI service JSON secret (keys SERVICE_KEY_ID, SERVICE_SECRET, OPENAI_API_KEY)
+  WebServiceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  HorizonServiceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  SchedulerServiceSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal ALB SG for AI service
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref WebServiceSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref HorizonServiceSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref SchedulerServiceSecurityGroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS tasks SG for AI service
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: trevy-ai-alb
+      Scheme: internal
+      Type: application
+      Subnets: !Ref PrivateSubnets
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: trevy-ai-tg
+      TargetType: ip
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckIntervalSeconds: 60
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+        - Key: stickiness.enabled
+          Value: 'false'
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: trevy-ai
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref AiTaskRoleArn
+      ContainerDefinitions:
+        - Name: ai
+          Image: !Ref AiImage
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          Essential: true
+          LinuxParameters:
+            InitProcessEnabled: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ai
+          Environment:
+            - Name: PORT
+              Value: !Sub "${ContainerPort}"
+            - Name: LOG_LEVEL
+              Value: INFO
+          Secrets:
+            - Name: SERVICE_KEY_ID
+              ValueFrom: !Sub "${AiSecretsArn}:SERVICE_KEY_ID::"
+            - Name: SERVICE_SECRET
+              ValueFrom: !Sub "${AiSecretsArn}:SERVICE_SECRET::"
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Sub "${AiSecretsArn}:OPENAI_API_KEY::"
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+    Properties:
+      Cluster: !Ref ClusterName
+      ServiceName: trevy-ai
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnets
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: ai
+          ContainerPort: !Ref ContainerPort
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      HealthCheckGracePeriodSeconds: 120
+
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref MaxCapacity
+      MinCapacity: !Ref MinCapacity
+      ResourceId: !Sub service/${ClusterName}/${Service.Name}
+      RoleARN: !Sub arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  CpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: trevy-ai-cpu-scaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+
+Outputs:
+  AlbDnsName:
+    Value: !GetAtt LoadBalancer.DNSName
+  ServiceName:
+    Value: !GetAtt Service.Name
+  TargetGroupArn:
+    Value: !Ref TargetGroup

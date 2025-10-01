@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Trevy ECS cluster and shared log groups
+
+Parameters:
+  ClusterName:
+    Type: String
+    Default: trevy-cluster
+  AppLogGroupName:
+    Type: String
+    Default: /ecs/trevy-platform
+  AiLogGroupName:
+    Type: String
+    Default: /ecs/trevy-ai
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+      CapacityProviders: [FARGATE, FARGATE_SPOT]
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AppLogGroupName
+      RetentionInDays: 30
+
+  AiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AiLogGroupName
+      RetentionInDays: 30
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  AppLogGroupName:
+    Value: !Ref AppLogGroupName
+  AiLogGroupName:
+    Value: !Ref AiLogGroupName
+

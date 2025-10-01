@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Trevy Scheduler Service (ECS Fargate) running php artisan schedule:work
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  ClusterName:
+    Type: String
+    Default: trevy-cluster
+  AppImage:
+    Type: String
+    Description: ECR image URI for trevy-platform (same as web)
+  Cpu:
+    Type: Number
+    Default: 256
+  Memory:
+    Type: Number
+    Default: 512
+  TaskExecutionRoleArn:
+    Type: String
+  AppTaskRoleArn:
+    Type: String
+  AppLogGroupName:
+    Type: String
+    Default: /ecs/trevy-platform
+  RdsSecurityGroupId:
+    Type: String
+  RedisSecurityGroupId:
+    Type: String
+  # Env/URLs
+  AppUrl:
+    Type: String
+  FrontendUrl:
+    Type: String
+  FubBaseUrl:
+    Type: String
+    Default: https://api.followupboss.com/v1
+  MailgunEndpoint:
+    Type: String
+    Default: api.mailgun.net
+  StripeAccountId:
+    Type: String
+    Default: ''
+  AiServiceBaseUrl:
+    Type: String
+    Default: ''
+  ScraperServiceBaseUrl:
+    Type: String
+    Default: ''
+  AiServiceTimeout:
+    Type: Number
+    Default: 300
+  # Secrets
+  DBSecretArn:
+    Type: String
+  RedisSecretArn:
+    Type: String
+  AppSecretsArn:
+    Type: String
+
+Resources:
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS Scheduler task
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId: !Ref RdsSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          DestinationSecurityGroupId: !Ref RedisSecurityGroupId
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: trevy-scheduler
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !Ref TaskExecutionRoleArn
+      TaskRoleArn: !Ref AppTaskRoleArn
+      ContainerDefinitions:
+        - Name: scheduler
+          Image: !Ref AppImage
+          Essential: true
+          Command: ["schedule"]
+          LinuxParameters:
+            InitProcessEnabled: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroupName
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: scheduler
+          HealthCheck:
+            Command: ["CMD-SHELL", "pgrep -f 'artisan schedule:work' || exit 1"]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          Environment:
+            - Name: APP_ENV
+              Value: production
+            - Name: APP_DEBUG
+              Value: 'false'
+            - Name: APP_URL
+              Value: !Ref AppUrl
+            - Name: DB_CONNECTION
+              Value: pgsql
+            - Name: CACHE_DRIVER
+              Value: redis
+            - Name: SESSION_DRIVER
+              Value: redis
+            - Name: QUEUE_CONNECTION
+              Value: redis
+            - Name: LOG_CHANNEL
+              Value: stderr
+            - Name: FRONTEND_URL
+              Value: !Ref FrontendUrl
+            - Name: MAILGUN_BASE_URL
+              Value: !Ref MailgunEndpoint
+            - Name: FUB_BASE_URL
+              Value: !Ref FubBaseUrl
+            - Name: STRIPE_ACCOUNT_ID
+              Value: !Ref StripeAccountId
+            - Name: AI_SERVICE_BASE_URL
+              Value: !Ref AiServiceBaseUrl
+            - Name: SCRAPER_SERVICE_BASE_URL
+              Value: !Ref ScraperServiceBaseUrl
+            - Name: AI_SERVICE_TIMEOUT
+              Value: !Ref AiServiceTimeout
+          Secrets:
+            - Name: APP_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:APP_KEY::"
+            - Name: STRIPE_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_SECRET::"
+            - Name: STRIPE_WEBHOOK_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_WEBHOOK_SECRET::"
+            - Name: MAILGUN_API_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_API_KEY::"
+            - Name: MAILGUN_SIGNING_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_SIGNING_KEY::"
+            - Name: GOOGLE_CLIENT_ID
+              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_ID::"
+            - Name: GOOGLE_CLIENT_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_SECRET::"
+            - Name: FUB_X_SYSTEM
+              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM::"
+            - Name: FUB_X_SYSTEM_KEY
+              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM_KEY::"
+            - Name: SERVICE_KEY_ID
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_KEY_ID::"
+            - Name: SERVICE_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
+            - Name: DB_HOST
+              ValueFrom: !Sub "${DBSecretArn}:host::"
+            - Name: DB_PORT
+              ValueFrom: !Sub "${DBSecretArn}:port::"
+            - Name: DB_DATABASE
+              ValueFrom: !Sub "${DBSecretArn}:dbname::"
+            - Name: DB_USERNAME
+              ValueFrom: !Sub "${DBSecretArn}:username::"
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub "${DBSecretArn}:password::"
+            - Name: REDIS_HOST
+              ValueFrom: !Sub "${RedisSecretArn}:host::"
+            - Name: REDIS_PORT
+              ValueFrom: !Sub "${RedisSecretArn}:port::"
+            - Name: REDIS_PASSWORD
+              ValueFrom: !Sub "${RedisSecretArn}:password::"
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ClusterName
+      ServiceName: trevy-scheduler
+      LaunchType: FARGATE
+      DesiredCount: 1
+      EnableExecuteCommand: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref PrivateSubnets
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      DeploymentConfiguration:
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+
+Outputs:
+  ServiceName:
+    Value: !GetAtt Service.Name
