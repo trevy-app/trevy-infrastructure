@@ -1,19 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Trevy Data Layer - RDS Postgres (managed secret), ElastiCache Redis (AUTH required), S3 buckets
+Description: RDS PostgreSQL + ElastiCache Redis with security groups
 
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
   PrivateSubnets:
     Type: List<AWS::EC2::Subnet::Id>
-
-  # RDS
   DbInstanceClass:
     Type: String
-    Default: db.t3.medium
+    Default: db.t3.micro
   DbAllocatedStorage:
     Type: Number
-    Default: 50
+    Default: 20
   DbName:
     Type: String
     Default: trevy
@@ -23,211 +21,108 @@ Parameters:
   DbEngineVersion:
     Type: String
     Default: '15.5'
-  KmsKeyArn:
-    Type: String
-    Default: ''
-    Description: Optional KMS key ARN for secrets and RDS password
-
-  # Redis
   RedisNodeType:
     Type: String
-    Default: cache.t3.small
-  RedisNumReplicas:
-    Type: Number
-    Default: 1
-  RedisAuthSecretArn:
-    Type: String
-    Description: Secrets Manager ARN for Redis auth JSON with key "password" (must exist)
-
-  # S3
-  AssetsBucketName:
-    Type: String
-    Default: trevy-prod-assets
-  LogsBucketName:
-    Type: String
-    Default: trevy-prod-logs
-
-Conditions:
-  HasKmsKey: !Not [!Equals [!Ref KmsKeyArn, '']]
+    Default: cache.t3.micro
 
 Resources:
-  # S3 Buckets
-  AssetsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref AssetsBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration:
-        Status: Enabled
-
-  LogsBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref LogsBucketName
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOldLogs
-            Status: Enabled
-            ExpirationInDays: 90
-          - Id: TransitionToIA
-            Status: Enabled
-            Transitions:
-              - StorageClass: STANDARD_IA
-                TransitionInDays: 30
-
-  # RDS monitoring role
-  RdsMonitoringRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: monitoring.rds.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
-
-  DbSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Trevy DB subnets
-      SubnetIds: !Ref PrivateSubnets
-
-  DbParameterGroup:
-    Type: AWS::RDS::DBParameterGroup
-    Properties:
-      Family: postgres15
-      Description: Optimized for Laravel workload
-      Parameters:
-        shared_buffers: '{DBInstanceClassMemory/4096}'
-        work_mem: '32768'
-        maintenance_work_mem: '524288'
-        effective_cache_size: '{DBInstanceClassMemory*3/4096}'
-        random_page_cost: '1.1'
-        max_connections: '200'
-
   DbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS Postgres security group (ingress to be managed by clients)
+      GroupDescription: RDS PostgreSQL security group
       VpcId: !Ref VpcId
-      SecurityGroupIngress: []
-
-  DbInstance:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBInstanceClass: !Ref DbInstanceClass
-      AllocatedStorage: !Ref DbAllocatedStorage
-      DBName: !Ref DbName
-      Engine: postgres
-      EngineVersion: !Ref DbEngineVersion
-      MultiAZ: true
-      StorageType: gp3
-      PubliclyAccessible: false
-      VPCSecurityGroups:
-        - !Ref DbSecurityGroup
-      DBSubnetGroupName: !Ref DbSubnetGroup
-      DBParameterGroupName: !Ref DbParameterGroup
-      MasterUsername: !Ref DbUsername
-      ManageMasterUserPassword: true
-      MasterUserPasswordSecretKmsKeyId: !If [HasKmsKey, !Ref KmsKeyArn, !Ref AWS::NoValue]
-      DeletionProtection: true
-      BackupRetentionPeriod: 7
-      PreferredBackupWindow: '03:00-04:00'
-      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
-      EnablePerformanceInsights: true
-      PerformanceInsightsRetentionPeriod: 7
-      MonitoringInterval: 60
-      MonitoringRoleArn: !GetAtt RdsMonitoringRole.Arn
-
-  # Redis
-  RedisSubnetGroup:
-    Type: AWS::ElastiCache::SubnetGroup
-    Properties:
-      Description: Trevy Redis subnets
-      SubnetIds: !Ref PrivateSubnets
-
-  RedisParameterGroup:
-    Type: AWS::ElastiCache::ParameterGroup
-    Properties:
-      CacheParameterGroupFamily: redis7
-      Description: Trevy Redis parameters
-      Properties:
-        maxmemory-policy: allkeys-lru
-        timeout: '300'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
 
   RedisSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ElastiCache Redis security group (ingress to be managed by clients)
+      GroupDescription: ElastiCache Redis security group
       VpcId: !Ref VpcId
-      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
 
-  RedisReplicationGroup:
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds: !Ref PrivateSubnets
+
+  DbPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: trevy/db/password
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username": "${DbUsername}"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      Engine: postgres
+      EngineVersion: !Ref DbEngineVersion
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: !Ref DbAllocatedStorage
+      DBName: !Ref DbName
+      MasterUsername: !Ref DbUsername
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DbPasswordSecret}:SecretString:password}}'
+      VPCSecurityGroups:
+        - !Ref DbSecurityGroup
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: 03:00-04:00
+      PreferredMaintenanceWindow: mon:04:00-mon:05:00
+      StorageEncrypted: true
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Subnet group for Redis
+      SubnetIds: !Ref PrivateSubnets
+
+  RedisCluster:
     Type: AWS::ElastiCache::ReplicationGroup
     Properties:
-      ReplicationGroupDescription: Trevy Redis
+      ReplicationGroupDescription: Redis cluster for Trevy
       Engine: redis
-      EngineVersion: '7.1'
       CacheNodeType: !Ref RedisNodeType
-      NumNodeGroups: 1
-      ReplicasPerNodeGroup: !Ref RedisNumReplicas
+      NumCacheClusters: 2
       AutomaticFailoverEnabled: true
       MultiAZEnabled: true
-      TransitEncryptionEnabled: true
-      AtRestEncryptionEnabled: true
-      AuthToken: !Sub '{{resolve:secretsmanager:${RedisAuthSecretArn}:SecretString:password}}'
-      CacheParameterGroupName: !Ref RedisParameterGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
       SecurityGroupIds:
         - !Ref RedisSecurityGroup
-      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: false
+      SnapshotRetentionLimit: 5
+      SnapshotWindow: 03:00-05:00
 
-  # Redis connection secret (requires RedisAuthSecretArn pre-created)
   RedisConnectionSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: trevy/prod/redis-connection
-      Description: Redis connection info for services
-      KmsKeyId: !If [HasKmsKey, !Ref KmsKeyArn, !Ref AWS::NoValue]
+      Name: trevy/redis/connection
       SecretString: !Sub |
         {
-          "host": "${RedisReplicationGroup.PrimaryEndPoint.Address}",
-          "port": "${RedisReplicationGroup.PrimaryEndPoint.Port}",
-          "password": "{{resolve:secretsmanager:${RedisAuthSecretArn}:SecretString:password}}"
+          "host": "${RedisCluster.PrimaryEndPoint.Address}",
+          "port": "${RedisCluster.PrimaryEndPoint.Port}"
         }
 
 Outputs:
-  DbEndpointAddress:
-    Value: !GetAtt DbInstance.Endpoint.Address
-  DbPort:
-    Value: !GetAtt DbInstance.Endpoint.Port
   DbSecurityGroupId:
     Value: !Ref DbSecurityGroup
   DbSecretArn:
-    Value: !GetAtt DbInstance.MasterUserSecret.SecretArn
-
-  RedisEndpointAddress:
-    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Address
-  RedisPort:
-    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Port
+    Value: !Ref DbPasswordSecret
+  DbEndpoint:
+    Value: !GetAtt DbInstance.Endpoint.Address
   RedisSecurityGroupId:
     Value: !Ref RedisSecurityGroup
   RedisSecretArn:
     Value: !Ref RedisConnectionSecret
-
-  AssetsBucketOut:
-    Value: !Ref AssetsBucket
-  LogsBucketOut:
-    Value: !Ref LogsBucket
-
+  RedisPrimaryEndpoint:
+    Value: !GetAtt RedisCluster.PrimaryEndPoint.Address
