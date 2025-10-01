@@ -16,7 +16,7 @@ Parameters:
   AppLogsBucketName:
     Type: String
     Default: trevy-prod-logs
-  KmsKeyId:
+  LogGroupPrefix:
     Type: String
     Default: /ecs/trevy-
     Description: CloudWatch Logs log group prefix for ECS services (e.g., /ecs/trevy-)
@@ -43,8 +43,6 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretPrefix}"
-              - Effect: Allow
-                Action:
 
   AppTaskRole:
     Type: AWS::IAM::Role
@@ -108,4 +106,3 @@ Outputs:
     Value: !GetAtt TaskExecutionRole.Arn
   AppTaskRoleArn:
     Value: !GetAtt AppTaskRole.Arn
-
