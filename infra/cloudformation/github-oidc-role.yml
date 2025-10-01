@@ -128,6 +128,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
+                  - secretsmanager:GetRandomPassword
                   - secretsmanager:CreateSecret
                   - secretsmanager:UpdateSecret
                 Resource: 'arn:aws:secretsmanager:*:*:secret:trevy/*'
