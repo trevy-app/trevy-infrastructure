@@ -124,14 +124,20 @@ Resources:
                   - ssm:PutParameter
                   - ssm:DeleteParameter
                 Resource: 'arn:aws:ssm:*:*:parameter/trevy/*'
-              - Sid: SecretsManager
+              - Sid: SecretsManagerSecrets
                 Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
-                  - secretsmanager:GetRandomPassword
                   - secretsmanager:CreateSecret
                   - secretsmanager:UpdateSecret
+                  - secretsmanager:DeleteSecret
+                  - secretsmanager:TagResource
                 Resource: 'arn:aws:secretsmanager:*:*:secret:trevy/*'
+              - Sid: SecretsManagerRandom
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetRandomPassword
+                Resource: '*'
               - Sid: Logs
                 Effect: Allow
                 Action: [ 'logs:*' ]
@@ -146,4 +152,3 @@ Outputs:
     Value: !GetAtt GitHubActionsTrevyDeployRole.Arn
   OidcProviderArn:
     Value: !Ref GitHubOidcProvider
-
