@@ -177,6 +177,7 @@ Resources:
       - Listener
     Properties:
       Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
       ServiceName: trevy-ai
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
