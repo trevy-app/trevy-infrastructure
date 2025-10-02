@@ -188,6 +188,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition  # THIS WAS MISSING
       ServiceName: trevy-horizon
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount

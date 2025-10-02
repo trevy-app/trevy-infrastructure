@@ -185,6 +185,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition  # THIS WAS MISSING
       ServiceName: trevy-scheduler
       LaunchType: FARGATE
       DesiredCount: 1
