@@ -125,7 +125,7 @@ Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: trevy-web-alb
+      Name: trevy-web-alb-v2
       Scheme: internet-facing
       Type: application
       Subnets: !Ref PublicSubnets
@@ -135,7 +135,7 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: trevy-web-tg
+      Name: trevy-web-tg-v2
       TargetType: ip
       VpcId: !Ref VpcId
       Protocol: HTTP
