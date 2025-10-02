@@ -71,13 +71,13 @@ Parameters:
     Description: Security group ID of the ElastiCache Redis cluster
   DBSecretArn:
     Type: String
-    Description: Secrets Manager ARN for DB JSON secret (keys: host, port, username, password, database)
+    Description: "Secrets Manager ARN for DB JSON secret (keys: host, port, username, password, database)"
   RedisSecretArn:
     Type: String
-    Description: Secrets Manager ARN for Redis JSON secret (keys: host, port, password)
+    Description: "Secrets Manager ARN for Redis JSON secret (keys: host, port, password)"
   AppSecretsArn:
     Type: String
-    Description: Secrets Manager ARN for application JSON secret (keys: APP_KEY, STRIPE_SECRET, STRIPE_WEBHOOK_SECRET, MAILGUN_API_KEY, MAILGUN_SIGNING_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FUB_X_SYSTEM, FUB_X_SYSTEM_KEY, SERVICE_KEY_ID, SERVICE_SECRET)
+    Description: "Secrets Manager ARN for application JSON secret (keys: APP_KEY, STRIPE_SECRET, STRIPE_WEBHOOK_SECRET, MAILGUN_API_KEY, MAILGUN_SIGNING_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FUB_X_SYSTEM, FUB_X_SYSTEM_KEY, SERVICE_KEY_ID, SERVICE_SECRET)"
 
 Resources:
   AlbSecurityGroup:
