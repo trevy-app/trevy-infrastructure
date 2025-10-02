@@ -285,6 +285,7 @@ Resources:
       - HttpsListener
     Properties:
       Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
       ServiceName: trevy-web
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
