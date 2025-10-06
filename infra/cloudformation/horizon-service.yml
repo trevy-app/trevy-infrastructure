@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Trevy Horizon Worker Service (ECS Fargate) without ALB
+Description: Trevy Horizon Worker Service (ECS Fargate) with dynamic secrets loading
 
 Parameters:
   VpcId:
@@ -144,29 +144,10 @@ Resources:
               Value: !Ref ScraperServiceBaseUrl
             - Name: AI_SERVICE_TIMEOUT
               Value: !Ref AiServiceTimeout
+            - Name: SECRETS_ARN
+              Value: !Ref AppSecretsArn
           Secrets:
-            - Name: APP_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:APP_KEY::"
-            - Name: STRIPE_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_SECRET::"
-            - Name: STRIPE_WEBHOOK_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_WEBHOOK_SECRET::"
-            - Name: MAILGUN_API_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_API_KEY::"
-            - Name: MAILGUN_SIGNING_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_SIGNING_KEY::"
-            - Name: GOOGLE_CLIENT_ID
-              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_ID::"
-            - Name: GOOGLE_CLIENT_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_SECRET::"
-            - Name: FUB_X_SYSTEM
-              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM::"
-            - Name: FUB_X_SYSTEM_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM_KEY::"
-            - Name: SERVICE_KEY_ID
-              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_KEY_ID::"
-            - Name: SERVICE_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
+            # DB secrets still mapped individually (different secret)
             - Name: DB_HOST
               ValueFrom: !Sub "${DBSecretArn}:host::"
             - Name: DB_PORT
@@ -177,6 +158,7 @@ Resources:
               ValueFrom: !Sub "${DBSecretArn}:username::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "${DBSecretArn}:password::"
+            # Redis secrets still mapped individually (different secret)
             - Name: REDIS_HOST
               ValueFrom: !Sub "${RedisSecretArn}:host::"
             - Name: REDIS_PORT
@@ -188,7 +170,7 @@ Resources:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref ClusterName
-      TaskDefinition: !Ref TaskDefinition  # THIS WAS MISSING
+      TaskDefinition: !Ref TaskDefinition
       ServiceName: trevy-horizon
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount

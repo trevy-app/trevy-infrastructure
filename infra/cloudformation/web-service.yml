@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Trevy Web Service (ALB + ECS Fargate) with HTTPS, autoscaling, and secrets injection
+Description: Trevy Web Service (ALB + ECS Fargate) with HTTPS, autoscaling, and dynamic secrets injection
 
 Parameters:
   VpcId:
@@ -77,7 +77,7 @@ Parameters:
     Description: "Secrets Manager ARN for Redis JSON secret (keys: host, port, password)"
   AppSecretsArn:
     Type: String
-    Description: "Secrets Manager ARN for application JSON secret (keys: APP_KEY, STRIPE_SECRET, STRIPE_WEBHOOK_SECRET, MAILGUN_API_KEY, MAILGUN_SIGNING_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, FUB_X_SYSTEM, FUB_X_SYSTEM_KEY, SERVICE_KEY_ID, SERVICE_SECRET)"
+    Description: "Secrets Manager ARN for application JSON secret with all app secrets"
 
 Resources:
   AlbSecurityGroup:
@@ -236,31 +236,10 @@ Resources:
               Value: !Ref ScraperServiceBaseUrl
             - Name: AI_SERVICE_TIMEOUT
               Value: !Ref AiServiceTimeout
+            - Name: SECRETS_ARN
+              Value: !Ref AppSecretsArn
           Secrets:
-            # App secrets JSON
-            - Name: APP_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:APP_KEY::"
-            - Name: STRIPE_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_SECRET::"
-            - Name: STRIPE_WEBHOOK_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:STRIPE_WEBHOOK_SECRET::"
-            - Name: MAILGUN_API_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_API_KEY::"
-            - Name: MAILGUN_SIGNING_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:MAILGUN_SIGNING_KEY::"
-            - Name: GOOGLE_CLIENT_ID
-              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_ID::"
-            - Name: GOOGLE_CLIENT_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:GOOGLE_CLIENT_SECRET::"
-            - Name: FUB_X_SYSTEM
-              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM::"
-            - Name: FUB_X_SYSTEM_KEY
-              ValueFrom: !Sub "${AppSecretsArn}:FUB_X_SYSTEM_KEY::"
-            - Name: SERVICE_KEY_ID
-              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_KEY_ID::"
-            - Name: SERVICE_SECRET
-              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
-            # DB JSON
+            # DB secrets still mapped individually (different secret)
             - Name: DB_HOST
               ValueFrom: !Sub "${DBSecretArn}:host::"
             - Name: DB_PORT
@@ -271,7 +250,7 @@ Resources:
               ValueFrom: !Sub "${DBSecretArn}:username::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "${DBSecretArn}:password::"
-            # Redis JSON
+            # Redis secrets still mapped individually (different secret)
             - Name: REDIS_HOST
               ValueFrom: !Sub "${RedisSecretArn}:host::"
             - Name: REDIS_PORT
