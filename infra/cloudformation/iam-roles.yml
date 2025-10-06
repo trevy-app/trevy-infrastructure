@@ -4,12 +4,12 @@ Description: IAM roles and policies for ECS tasks (execution + application) with
 Parameters:
   SecretPrefix:
     Type: String
-    Default: trevy/prod/*
-    Description: Secrets Manager path prefix (e.g., trevy/prod/*)
+    Default: trevy/*
+    Description: Secrets Manager path prefix (covers trevy/app/secrets, trevy/prod/*, etc.)
   SsmParameterPrefix:
     Type: String
-    Default: trevy/prod/*
-    Description: SSM Parameter Store path prefix (e.g., trevy/prod/*)
+    Default: trevy/*
+    Description: SSM Parameter Store path prefix
   AppAssetsBucketName:
     Type: String
     Default: trevy-prod-assets
@@ -19,7 +19,7 @@ Parameters:
   LogGroupPrefix:
     Type: String
     Default: /ecs/trevy-
-    Description: CloudWatch Logs log group prefix for ECS services (e.g., /ecs/trevy-)
+    Description: CloudWatch Logs log group prefix for ECS services
 
 Resources:
   TaskExecutionRole:
@@ -62,7 +62,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
-                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretPrefix}"
+                Resource: 
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:trevy/app/secrets-*"
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretPrefix}"
               - Effect: Allow
                 Action:
                   - ssm:GetParameter
@@ -80,6 +82,12 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::${AppAssetsBucketName}/*"
                   - !Sub "arn:aws:s3:::${AppLogsBucketName}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "arn:aws:s3:::${AppAssetsBucketName}"
+                  - !Sub "arn:aws:s3:::${AppLogsBucketName}"
         - PolicyName: CloudWatchLogs
           PolicyDocument:
             Version: '2012-10-17'
