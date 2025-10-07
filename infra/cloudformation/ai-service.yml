@@ -43,7 +43,7 @@ Parameters:
     Default: /health
   AiSecretsArn:
     Type: String
-    Description: Secrets Manager ARN for AI service JSON secret (keys SERVICE_KEY_ID, SERVICE_SECRET, OPENAI_API_KEY)
+    Description: Secrets Manager ARN for AI service JSON secret (keys SERVICE_KEY_ID, SERVICE_SECRET, OPENAI_API_KEY, REDIS_URL)
   WebServiceSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
   HorizonServiceSecurityGroupId:
@@ -89,6 +89,10 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: 10.0.0.0/16
 
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -170,6 +174,8 @@ Resources:
               ValueFrom: !Sub "${AiSecretsArn}:SERVICE_SECRET::"
             - Name: OPENAI_API_KEY
               ValueFrom: !Sub "${AiSecretsArn}:OPENAI_API_KEY::"
+            - Name: REDIS_URL
+              ValueFrom: !Sub "${AiSecretsArn}:REDIS_URL::"
 
   Service:
     Type: AWS::ECS::Service
