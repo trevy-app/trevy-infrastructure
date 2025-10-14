@@ -25,10 +25,10 @@ Parameters:
     Default: 10
   Cpu:
     Type: Number
-    Default: 512
+    Default: 2048
   Memory:
     Type: Number
-    Default: 1024
+    Default: 4096
   TaskExecutionRoleArn:
     Type: String
   AppTaskRoleArn:
@@ -251,6 +251,13 @@ Resources:
               ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
             - Name: AI_SERVICE_TIMEOUT
               ValueFrom: !Sub "${AppSecretsArn}:AI_SERVICE_TIMEOUT::"
+            # Sentry secrets
+            - Name: SENTRY_LARAVEL_DSN
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_LARAVEL_DSN::"
+            - Name: SENTRY_TRACES_SAMPLE_RATE
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_TRACES_SAMPLE_RATE::"
+            - Name: SENTRY_ENVIRONMENT
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_ENVIRONMENT::"
 
   Service:
     Type: AWS::ECS::Service

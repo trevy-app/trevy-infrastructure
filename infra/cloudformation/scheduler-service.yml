@@ -43,15 +43,6 @@ Parameters:
   StripeAccountId:
     Type: String
     Default: ''
-  AiServiceBaseUrl:
-    Type: String
-    Default: ''
-  ScraperServiceBaseUrl:
-    Type: String
-    Default: ''
-  AiServiceTimeout:
-    Type: Number
-    Default: 300
   # Secrets
   DBSecretArn:
     Type: String
@@ -135,16 +126,10 @@ Resources:
               Value: !Ref FubBaseUrl
             - Name: STRIPE_ACCOUNT_ID
               Value: !Ref StripeAccountId
-            - Name: AI_SERVICE_BASE_URL
-              Value: !Ref AiServiceBaseUrl
-            - Name: SCRAPER_SERVICE_BASE_URL
-              Value: !Ref ScraperServiceBaseUrl
-            - Name: AI_SERVICE_TIMEOUT
-              Value: !Ref AiServiceTimeout
             - Name: SECRETS_ARN
               Value: !Ref AppSecretsArn
           Secrets:
-            # DB secrets still mapped individually (different secret)
+            # DB secrets
             - Name: DB_HOST
               ValueFrom: !Sub "${DBSecretArn}:host::"
             - Name: DB_PORT
@@ -155,13 +140,29 @@ Resources:
               ValueFrom: !Sub "${DBSecretArn}:username::"
             - Name: DB_PASSWORD
               ValueFrom: !Sub "${DBSecretArn}:password::"
-            # Redis secrets still mapped individually (different secret)
+            # Redis secrets
             - Name: REDIS_HOST
               ValueFrom: !Sub "${RedisSecretArn}:host::"
             - Name: REDIS_PORT
               ValueFrom: !Sub "${RedisSecretArn}:port::"
             - Name: REDIS_PASSWORD
               ValueFrom: !Sub "${RedisSecretArn}:password::"
+            # App secrets from trevy/app/secrets
+            - Name: AI_SERVICE_BASE_URL
+              ValueFrom: !Sub "${AppSecretsArn}:AI_SERVICE_BASE_URL::"
+            - Name: SERVICE_KEY_ID
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_KEY_ID::"
+            - Name: SERVICE_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:SERVICE_SECRET::"
+            - Name: AI_SERVICE_TIMEOUT
+              ValueFrom: !Sub "${AppSecretsArn}:AI_SERVICE_TIMEOUT::"
+            # Sentry secrets
+            - Name: SENTRY_LARAVEL_DSN
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_LARAVEL_DSN::"
+            - Name: SENTRY_TRACES_SAMPLE_RATE
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_TRACES_SAMPLE_RATE::"
+            - Name: SENTRY_ENVIRONMENT
+              ValueFrom: !Sub "${AppSecretsArn}:SENTRY_ENVIRONMENT::"
 
   Service:
     Type: AWS::ECS::Service

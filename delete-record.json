@@ -1,0 +1,17 @@
+{
+  "Changes": [
+    {
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "app.trevy.io.",
+        "Type": "A",
+        "TTL": 300,
+        "ResourceRecords": [
+          {
+            "Value": "3.92.252.77"
+          }
+        ]
+      }
+    }
+  ]
+}
