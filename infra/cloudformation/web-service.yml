@@ -69,6 +69,35 @@ Parameters:
   AppSecretsArn:
     Type: String
     Description: "Secrets Manager ARN for application JSON secret with all app secrets"
+  # SQS Worker Configuration
+  SqsCdpWorkers:
+    Type: Number
+    Default: 10
+    Description: Number of SQS workers for CDP ingest (scale up to 20-30 for large imports)
+  SqsSleep:
+    Type: Number
+    Default: 3
+    Description: Seconds to sleep when queue is empty
+  SqsTries:
+    Type: Number
+    Default: 3
+    Description: Number of times to attempt a job
+  SqsTimeout:
+    Type: Number
+    Default: 120
+    Description: Maximum seconds a job can run
+  SqsBackoff:
+    Type: Number
+    Default: 10
+    Description: Seconds to wait before retrying failed job
+  SqsMaxJobs:
+    Type: Number
+    Default: 1000
+    Description: Maximum jobs before worker restarts (0 = unlimited)
+  SqsMaxTime:
+    Type: Number
+    Default: 3600
+    Description: Maximum seconds before worker restarts (0 = unlimited)
 
 Resources:
   AlbSecurityGroup:
@@ -223,6 +252,21 @@ Resources:
               Value: !Ref StripeAccountId
             - Name: SECRETS_ARN
               Value: !Ref AppSecretsArn
+            # SQS Worker Configuration
+            - Name: SQS_CDP_WORKERS
+              Value: !Ref SqsCdpWorkers
+            - Name: SQS_SLEEP
+              Value: !Ref SqsSleep
+            - Name: SQS_TRIES
+              Value: !Ref SqsTries
+            - Name: SQS_TIMEOUT
+              Value: !Ref SqsTimeout
+            - Name: SQS_BACKOFF
+              Value: !Ref SqsBackoff
+            - Name: SQS_MAX_JOBS
+              Value: !Ref SqsMaxJobs
+            - Name: SQS_MAX_TIME
+              Value: !Ref SqsMaxTime
           Secrets:
             # DB secrets
             - Name: DB_HOST
