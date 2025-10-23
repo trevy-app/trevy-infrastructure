@@ -176,6 +176,8 @@ Resources:
               ValueFrom: !Sub "${AiSecretsArn}:OPENAI_API_KEY::"
             - Name: GOOGLE_PLACES_API_KEY
               ValueFrom: !Sub "${AiSecretsArn}:GOOGLE_PLACES_API_KEY::"
+            - Name: FRED_API_KEY
+              ValueFrom: !Sub "${AiSecretsArn}:FRED_API_KEY::"
             - Name: REDIS_URL
               ValueFrom: !Sub "${AiSecretsArn}:REDIS_URL::"
 
