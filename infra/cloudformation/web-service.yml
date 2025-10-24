@@ -69,9 +69,6 @@ Parameters:
   AppSecretsArn:
     Type: String
     Description: "Secrets Manager ARN for application JSON secret with all app secrets"
-  MicrosoftSecretArn:
-    Type: String
-    Description: "Secrets Manager ARN for Microsoft OAuth credentials (keys: client_id, client_secret)"
   # SQS Worker Configuration
   SqsCdpWorkers:
     Type: Number
@@ -271,10 +268,6 @@ Resources:
             - Name: SQS_MAX_TIME
               Value: !Ref SqsMaxTime
             # Microsoft/Outlook Configuration
-            - Name: MICROSOFT_REDIRECT_URI
-              Value: !Sub "${AppUrl}/api/v1/microsoft/oauth/callback"
-            - Name: MICROSOFT_TENANT_ID
-              Value: common
             - Name: OUTLOOK_SEND_ENABLED
               Value: 'true'
             - Name: OUTLOOK_SEND_THRESHOLD
@@ -322,9 +315,13 @@ Resources:
               ValueFrom: !Sub "${AppSecretsArn}:SENTRY_ENVIRONMENT::"
             # Microsoft OAuth secrets
             - Name: MICROSOFT_CLIENT_ID
-              ValueFrom: !Sub "${MicrosoftSecretArn}:client_id::"
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_CLIENT_ID::"
             - Name: MICROSOFT_CLIENT_SECRET
-              ValueFrom: !Sub "${MicrosoftSecretArn}:client_secret::"
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_CLIENT_SECRET::"
+            - Name: MICROSOFT_REDIRECT_URI
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_REDIRECT_URI::"
+            - Name: MICROSOFT_TENANT_ID
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_TENANT_ID::"
 
   Service:
     Type: AWS::ECS::Service

@@ -128,6 +128,17 @@ Resources:
               Value: !Ref StripeAccountId
             - Name: SECRETS_ARN
               Value: !Ref AppSecretsArn
+            # Microsoft/Outlook Configuration
+            - Name: OUTLOOK_SEND_ENABLED
+              Value: 'true'
+            - Name: OUTLOOK_SEND_THRESHOLD
+              Value: '100'
+            - Name: OUTLOOK_REPLY_CHECK_ENABLED
+              Value: 'true'
+            - Name: OUTLOOK_REPLY_CHECK_INTERVAL
+              Value: '5'
+            - Name: OUTLOOK_REPLY_CHECK_WINDOW
+              Value: '10'
           Secrets:
             # DB secrets
             - Name: DB_HOST
@@ -163,6 +174,15 @@ Resources:
               ValueFrom: !Sub "${AppSecretsArn}:SENTRY_TRACES_SAMPLE_RATE::"
             - Name: SENTRY_ENVIRONMENT
               ValueFrom: !Sub "${AppSecretsArn}:SENTRY_ENVIRONMENT::"
+            # Microsoft OAuth secrets
+            - Name: MICROSOFT_CLIENT_ID
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_CLIENT_ID::"
+            - Name: MICROSOFT_CLIENT_SECRET
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_CLIENT_SECRET::"
+            - Name: MICROSOFT_REDIRECT_URI
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_REDIRECT_URI::"
+            - Name: MICROSOFT_TENANT_ID
+              ValueFrom: !Sub "${AppSecretsArn}:MICROSOFT_TENANT_ID::"
 
   Service:
     Type: AWS::ECS::Service
